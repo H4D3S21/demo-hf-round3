@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+RUN pip install --no-cache-dir torch transformers flask accelerate
+
+COPY start_hf.sh /app/start_hf.sh
+RUN chmod +x /app/start_hf.sh
+
+EXPOSE 8001
+CMD ["/app/start_hf.sh"]
