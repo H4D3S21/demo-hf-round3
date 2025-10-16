@@ -1,54 +1,55 @@
 import os
-from github import Github, GithubException
+from github import Github
+import logging
 
-def create_or_update_repo(task_id, brief, files_dict):
-    """
-    Creates or updates a GitHub repo and uploads multiple files.
-    files_dict = {filename: content}
-    """
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        raise RuntimeError("❌ GITHUB_TOKEN not found in environment variables.")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
-    g = Github(token)
+def get_github_user():
+    g = Github(GITHUB_TOKEN)
     user = g.get_user()
-    print(f"✅ Authenticated as: {user.login}")
+    logging.info(f"✅ Authenticated as: {user.login}")
+    return user
 
-    # Check or create repo
+
+def create_repo_with_code(task_id, brief, code):
+    """Create a new GitHub repo for a task and upload generated code."""
+    user = get_github_user()
+
+    logging.info(f"📦 Creating new repo: {task_id}")
+    repo = user.create_repo(
+        name=task_id,
+        description=brief,
+        private=False,
+        auto_init=False
+    )
+
+    repo.create_file(
+        "app_generated.py",
+        f"Initial commit for {task_id}",
+        code
+    )
+
+    repo_url = repo.html_url
+    logging.info(f"✅ Repo ready: {repo_url}")
+
+    # Return tuple for backward compatibility
+    return repo, "initial_commit_sha", repo_url
+
+
+def update_repo(task_id, content):
+    """Update an existing repo with new generated content."""
+    user = get_github_user()
     try:
         repo = user.get_repo(task_id)
-        print(f"⚙️ Updating existing repo: {repo.name}")
-    except GithubException:
-        print(f"📦 Creating new repo: {task_id}")
-        repo = user.create_repo(
-            name=task_id,
-            description=brief or "AI-generated Flask project",
-            private=False,
-            auto_init=False,
-        )
+    except Exception:
+        raise RuntimeError(f"❌ Repository for task {task_id} not found!")
 
-    # Commit files
-    for path, content in files_dict.items():
-        commit_message = f"🤖 Auto-update: {path}"
-        try:
-            # Try updating existing file
-            existing = repo.get_contents(path)
-            repo.update_file(existing.path, commit_message, content, existing.sha)
-            print(f"🌀 Updated {path}")
-        except GithubException as e:
-            if e.status == 404:
-                repo.create_file(path, commit_message, content)
-                print(f"📄 Created {path}")
-            else:
-                raise
-
-    # Auto-generate README.md
-    readme_content = f"# {task_id}\n\nGenerated automatically by AI code generator.\n\n## Brief\n{brief}"
-    try:
-        existing = repo.get_contents("README.md")
-        repo.update_file("README.md", "📘 Auto-update README", readme_content, existing.sha)
-    except GithubException:
-        repo.create_file("README.md", "📘 Add README", readme_content)
-
-    print(f"✅ Repo ready: https://github.com/{user.login}/{repo.name}")
-    return repo
+    contents = repo.get_contents("app_generated.py")
+    repo.update_file(
+        contents.path,
+        f"Updated code for {task_id}",
+        content,
+        contents.sha
+    )
+    logging.info(f"✅ Updated repo: {repo.html_url}")
+    return contents.sha
