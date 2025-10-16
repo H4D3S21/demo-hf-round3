@@ -2,27 +2,28 @@ import os
 from github import Github
 import logging
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-
 def get_github_user():
-    g = Github(GITHUB_TOKEN)
+    """Authenticate to GitHub using a Personal Access Token (PAT)."""
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        raise EnvironmentError("❌ Missing GITHUB_TOKEN environment variable.")
+    g = Github(token)
     user = g.get_user()
     logging.info(f"✅ Authenticated as: {user.login}")
     return user
 
 
 def create_repo_with_code(task_id, brief, code):
-    """Create a new GitHub repo for a task and upload generated code."""
+    """Create a new repo and upload generated code."""
     user = get_github_user()
-
     logging.info(f"📦 Creating new repo: {task_id}")
+
     repo = user.create_repo(
         name=task_id,
         description=brief,
         private=False,
         auto_init=False
     )
-
     repo.create_file(
         "app_generated.py",
         f"Initial commit for {task_id}",
@@ -31,8 +32,6 @@ def create_repo_with_code(task_id, brief, code):
 
     repo_url = repo.html_url
     logging.info(f"✅ Repo ready: {repo_url}")
-
-    # Return tuple for backward compatibility
     return repo, "initial_commit_sha", repo_url
 
 
