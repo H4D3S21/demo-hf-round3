@@ -1,35 +1,64 @@
 from fastapi import FastAPI, Request
-from github_utils import create_or_update_repo
-from hf_generator import generate_app_code
+from github_utils import create_repo_with_code, update_repo
+from hf_generator import generate_code
+from utils import send_callback
 import logging
 
 app = FastAPI()
-logger = logging.getLogger("HF_GENERATOR")
+
+# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
+# ✅ Home route (for Render homepage)
+@app.get("/")
+def home():
+    return {"message": "🚀 LLM Deployment Server is Live on Render!"}
+
+
+# ✅ Task route (main app logic)
 @app.post("/task")
 async def handle_task(request: Request):
     data = await request.json()
-    email = data.get("email")
-    secret = data.get("secret")
-    task = data.get("task")
-    brief = data.get("brief")
-    round_ = data.get("round")
-    nonce = data.get("nonce", f"local-{task}")
+    task_id = data.get("task_id", "demo-hf-round")
+    email = data.get("email", "student@example.com")
+    round_num = data.get("round", "1")
+    brief = data.get("brief", "No brief provided")
+    nonce = data.get("nonce", "no-nonce")
 
-    logger.info(f"Round {round_} | Task {task} | Email {email}")
-    logger.info("🧠 Sending prompt to HuggingFace server...")
+    logging.info(f"Round {round_num} | Task {task_id} | Email {email}")
 
-    # Generate code
-    code = generate_app_code(brief)
+    # --- Step 1: Generate code from Hugging Face server
+    hf_server = "http://127.0.0.1:8010/generate"
+    logging.info(f"🧠 Sending prompt to HuggingFace server...")
+    code = generate_code(hf_server, brief)
 
-    # Create or update GitHub repo
-    repo = create_or_update_repo(task, brief, code)
-    pages_url = f"https://github.com/H4D3S21/{repo.name}"
+    # --- Step 2: Push to GitHub repo
+    try:
+        logging.info("✅ Authenticated with GitHub")
+        try:
+            sha = update_repo(task_id, code)
+        except RuntimeError:
+            logging.warning(f"⚠️ Repo {task_id} not found. Creating new one...")
+            repo, sha, pages_url = create_repo_with_code(task_id, brief, code)
+            logging.info(f"✅ Created repo: {pages_url}")
+        else:
+            repo = f"https://github.com/H4D3S21/{task_id}"
+            logging.info(f"✅ Updated existing repo: {repo}")
 
-    logger.info(f"✅ Repo ready: {pages_url}")
+        commit_sha = sha
+        repo_url = f"https://github.com/H4D3S21/{task_id}"
 
-    # Optional callback data
-    callback_data = {"task": task, "repo_url": pages_url}
+    except Exception as e:
+        logging.error(f"❌ GitHub error: {e}")
+        commit_sha = None
+        repo_url = None
 
-    return {"status": "success", "round": round_, "repo": repo.name, "url": pages_url}
+    # --- Step 3: Send callback
+    send_callback(task_id, round_num, email, nonce, commit_sha)
+
+    return {
+        "status": "ok",
+        "round": round_num,
+        "repo_url": repo_url,
+        "commit_sha": commit_sha
+    }
